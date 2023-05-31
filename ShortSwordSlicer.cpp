@@ -3,6 +3,7 @@ using namespace std;
 using namespace rapidjson;
 
 vector<string> argsStack;
+set<string> discoveredEntries;
 const string initError = "Error occured while initializing. ";
 const string unpackError = "Error occured while unpacking. ";
 const string packError = "Error occured while packing. ";
@@ -351,14 +352,16 @@ string hierarchyConcat(vector<string>& v) {
 	return res;
 }
 
-bool dirDFS(int dirNum, set<string>& discoveredEntries, vector<vector<int>>& dirTree, vector<string>& dirIndex, vector<bool>& visited) {
-	if (visited[dirNum]) 
+bool dirDFS(int dirNum, vector<vector<int>>& dirTree, vector<string>& dirIndex, vector<bool>& visited) {
+	if (visited[dirNum]) return 0;
+	if (dirIndex[dirNum].find("component://") == -1 && dirIndex[dirNum].find("gamelogic://") == -1 && !discoveredEntries.count(dirIndex[dirNum]))
 		return 0;
 	visited[dirNum] = 1;
 
 	bool res = 1;
 	for (int& dir : dirTree[dirNum]) 
-		res &= dirDFS(dir, discoveredEntries, dirTree, dirIndex, visited);
+		res &= dirDFS(dir, dirTree, dirIndex, visited);
+
 	return res;
 }
 
@@ -588,11 +591,10 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 
 string packMod(string myPath, string outPath) {
 	vector<pair<string, string>> sorted;
-	set<string> discoveredEntries;
 	map<string, int> dirNode;
 	vector<string> dirIndex;
 	vector<vector<int>> dirTree;
-	int rootDirNum = -1;
+	int rootDirNum = -1, dirCnt = 0;
 
 	regex cbHead("Code\\s*=\\s*function\\s*\\(\\s*(\\w+\\,\\s*)*\\w*\\s*\\)");
 	regex cbTail("end\\,(\\s*Scope\\s*=\\s*\\d+\\s*\\,[\\s\n]*ExecSpace\\s*=\\s*\\d+)");
@@ -655,6 +657,8 @@ string packMod(string myPath, string outPath) {
 			v.push_back(fullCategory);
 
 			if (category == "directory") {
+				dirCnt++;
+
 				if (!dirNode.count(fullId)) {
 					dirNode[fullId] = dirNode.size();
 					dirIndex.push_back(fullId);
@@ -717,8 +721,8 @@ string packMod(string myPath, string outPath) {
 	}
 
 	vector<bool> visited(dirNode.size());
-	if (rootDirNum == -1 && dirNode.size()) return vaildateError + "Invalid directory structure";
-	if (rootDirNum != -1 && !dirDFS(rootDirNum, discoveredEntries, dirTree, dirIndex, visited)) return vaildateError + "Invalid directory structure";
+	if (rootDirNum == -1 && dirCnt) return vaildateError + "Invalid directory structure";
+	if (rootDirNum != -1 && !dirDFS(rootDirNum, dirTree, dirIndex, visited)) return vaildateError + "Invalid directory structure";
 
 	ofstream fout(outPath, ios::binary);
 	fout << '\n' << '\0';
@@ -749,5 +753,8 @@ int main(int argc, char** argv) {
 
 		if (ext == 1) cout << unpackMod(myPath, outPath) << "\n";
 		else cout << packMod(myPath, outPath) << "\n";
+		
+		argsStack.clear();
+		discoveredEntries.clear();
 	}
 }
