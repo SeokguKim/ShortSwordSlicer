@@ -3,17 +3,18 @@ using namespace std;
 using namespace rapidjson;
 
 vector<string> argsStack;
-const string initError = "Error occured while initializing: ";
-const string unpackError = "Error occured while unpacking: ";
-const string packError = "Error occured while packing: ";
-const string vaildateError = "Error occured while validating: ";
+const string initError = "Error occured while initializing. ";
+const string unpackError = "Error occured while unpacking. ";
+const string packError = "Error occured while packing. ";
+const string vaildateError = "Error occured while validating. ";
 
 int extensioncheck(string myPath, string& outPath) {
 	auto curInput = filesystem::directory_entry(myPath);
 
 	if (curInput.is_directory()) {
-		outPath = myPath + ".mod";
-		if (filesystem::exists(outPath)) outPath += myPath + "_new.mod";
+		outPath = myPath;
+		while (filesystem::exists(outPath + ".mod")) outPath += "_new";
+		outPath += ".mod";
 		return 2;
 	}
 
@@ -21,7 +22,7 @@ int extensioncheck(string myPath, string& outPath) {
 		outPath = curInput.path().parent_path().string();
 		if (outPath.back() != '/' && outPath.back() != '\\') outPath += "/";
 		outPath += curInput.path().stem().string();
-		if (filesystem::exists(outPath)) outPath += "_new";
+		while (filesystem::exists(outPath)) outPath += "_new";
 		return 1;
 	}
 
@@ -76,7 +77,7 @@ void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, stri
 			}
 			else if (curType == Type::kStringType){
 				string cur = item.GetString();
-				if (cur == "\"\"") cur = "";
+				if (cur.size() > 1 && cur[0] == '\"' && cur.back() == '\"') cur = cur.substr(1), cur.pop_back();
 				resString += "\"" + cur + "\",\n";
 			}
 			else if (curType == Type::kNullType) {
@@ -115,7 +116,7 @@ void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, stri
 			}
 			else if (curType == Type::kStringType){
 				string cur = curGroup.value.GetString();
-				if (cur == "\"\"") cur = "";
+				if (cur.size() > 1 && cur[0] == '\"' && cur.back() == '\"') cur = cur.substr(1), cur.pop_back();
 				resString += "\"" + cur + "\",\n";
 				if (prevName == "Arguments" && curName == "Name") argsStack.push_back(cur);
 			}
@@ -173,7 +174,7 @@ string unpackMod(string myPath, string outPath) {
 		string scriptName = entryId;
 		string resString = "";
 		if (category == "codeblock") {
-			resString += "local unpackedContents = {\n";
+			resString += "unpackedContents = {\n";
 			resString += tabLine(1) + "uniqueIdentifier = \"" + uniqueIdentifier + "\",\n";
 			resString += tabLine(1) + "bundleIdentifier = \"" + bundleIdentifier + "\",\n";
 			resString += tabLine(1) + "category = \"" + category + "\",\n";
@@ -234,6 +235,7 @@ string unpackMod(string myPath, string outPath) {
 					resString += tabLine(3) + "\"miscs\": [\n";
 					if (cursub[5].str().size()) {
 						string miscs = cursub[5].str();
+						if (miscs.back() == 'X') miscs.pop_back();
 						auto ms = sregex_iterator(miscs.begin(), miscs.end() , miscslicer);
 						auto me = sregex_iterator();
 						
@@ -319,26 +321,24 @@ string hierarchyConcat(vector<string>& v) {
 	string res = v[0];
 	res += "\x12\x20" + v[1];
 	res += "\x1A" + getByte(v[2].length()) + v[2];
-	res += "\x22" + getByte(v[3].size()) + v[3];
+	res += "\x22" + getByte(v[3].length()) + v[3];
 
 	size_t idx = 4;
 	string innerSide = "\x08\x01";
 
 	while (idx < v.size()) {
 		string tmp = v[idx++];
-		tmp += (unsigned char)18;
-		tmp += getByte(v[idx].size());
+		tmp += "\x12" + getByte(v[idx].length());
 		tmp += v[idx++];
-		tmp += (unsigned char)26;
-		tmp += getByte(v[idx].size());
+		tmp += "\x1A" + getByte(v[idx].length());
 		tmp += v[idx++];
-		if (v[idx][0] != 26 && v[idx][0] != 88 && v[idx][1] != 1) {
-			tmp += (unsigned char)34;
-			tmp += getByte(v[idx].size());
+		if (v[idx] != "") {
+			tmp += "\x22" + getByte(v[idx].length());
 			tmp += v[idx++];
 		}
-		tmp = getByte(tmp.size()) + tmp;
-		tmp.insert(0, 1, (unsigned char)26);
+		else idx++;
+		tmp = getByte(tmp.length()) + tmp;
+		tmp = "\x1A" + tmp;
 		innerSide += tmp;
 	}
 
@@ -352,12 +352,238 @@ string hierarchyConcat(vector<string>& v) {
 }
 
 bool dirDFS(int dirNum, set<string>& discoveredEntries, vector<vector<int>>& dirTree, vector<string>& dirIndex, vector<bool>& visited) {
-	if (visited[dirNum] || !discoveredEntries.count(dirIndex[dirNum])) return 0;
+	if (visited[dirNum]) 
+		return 0;
 	visited[dirNum] = 1;
 
 	bool res = 1;
-	for (int& dir : dirTree[dirNum]) res &= dirDFS(dir, discoveredEntries, dirTree, dirIndex, visited);
+	for (int& dir : dirTree[dirNum]) 
+		res &= dirDFS(dir, discoveredEntries, dirTree, dirIndex, visited);
 	return res;
+}
+
+variant<string, int> luaGetfromKey(lua_State *L, string key) {
+	lua_pushstring(L, key.c_str());
+	int err = lua_gettable(L, -2);
+	
+	if (lua_isinteger(L, -1)) {
+		int resInt = lua_tointeger(L, -1);
+		lua_pop(L, 1);
+		return resInt;
+	}
+	else if (lua_isstring(L, -1)) {
+		string resString = lua_tostring(L, -1);
+		lua_pop(L, 1);
+		return resString;
+	}
+
+	lua_pop(L, 1);
+
+	return "\v";
+}
+
+void propertyIterate(lua_State *L, Value& dest, rapidjson::MemoryPoolAllocator<>& alloc) {
+	while(lua_next(L, -2)) {
+		string ptype = get<string>(luaGetfromKey(L, "Type"));
+		string defaultValue = get<string>(luaGetfromKey(L, "DefaultValue"));
+		int syncDirection = get<int>(luaGetfromKey(L, "SyncDirection"));
+		string name = get<string>(luaGetfromKey(L, "Name"));
+		if (ptype == "string") defaultValue = "\"" + defaultValue + "\"";
+
+		Value curProperty;
+		curProperty.SetObject();
+		curProperty.AddMember("Type", Value().SetString(ptype.c_str(), alloc), alloc);
+		curProperty.AddMember("DefaultValue", (defaultValue == "\v" ? Value().SetNull() : Value().SetString(defaultValue.c_str(), alloc)), alloc);
+		curProperty.AddMember("SyncDirection", Value(syncDirection), alloc);
+		curProperty.AddMember("Attributes", Value().SetArray(), alloc);
+		curProperty.AddMember("Name", (name == "\v" ? Value().SetNull() : Value().SetString(name.c_str(), alloc)), alloc);
+		
+		dest.PushBack(curProperty, alloc);
+
+		lua_pop(L, 1);
+	}
+}
+
+void methodIterate(lua_State *L, Value& dest, rapidjson::MemoryPoolAllocator<>& alloc, queue<string>& codeblocks) {
+	while(lua_next(L, -2)) {
+		Value curMethod;
+		curMethod.SetObject();
+
+		Value ret;
+		ret.SetObject();
+		lua_pushstring(L, "Return");
+		lua_gettable(L, -2);
+
+		string rtype = get<string>(luaGetfromKey(L, "Type"));
+		string defaultValue = get<string>(luaGetfromKey(L, "DefaultValue"));
+		int syncDirection = get<int>(luaGetfromKey(L, "SyncDirection"));
+		string rname = get<string>(luaGetfromKey(L, "Name"));
+		if (rtype == "string") defaultValue = "\"" + defaultValue + "\"";
+		
+		
+		ret.AddMember("Type", Value().SetString(rtype.c_str(), alloc), alloc);
+		ret.AddMember("DefaultValue", (defaultValue == "\v" ? Value().SetNull() : Value().SetString(defaultValue.c_str(), alloc)), alloc);
+		ret.AddMember("SyncDirection", Value(syncDirection), alloc);
+		ret.AddMember("Attributes", Value().SetArray(), alloc);
+		ret.AddMember("Name", (rname == "\v" ? Value().SetNull() : Value().SetString(rname.c_str(), alloc)), alloc);
+		curMethod.AddMember("Return", ret, alloc);
+		lua_pop(L, 1);
+
+		Value args;
+		args.SetArray();
+		lua_pushstring(L, "Arguments");
+		lua_gettable(L, -2);
+		if (lua_isnil(L, -1)) curMethod.AddMember("Arguments", Value().SetNull(), alloc);
+		else {
+			lua_pushnil(L);
+			propertyIterate(L, args, alloc);
+			curMethod.AddMember("Arguments", args, alloc);
+		}
+		lua_pop(L, 1);
+
+		string curCode = codeblocks.front();
+		codeblocks.pop();
+		int scope = get<int>(luaGetfromKey(L, "Scope"));
+		int_least64_t execspace = get<int>(luaGetfromKey(L, "ExecSpace"));
+		string mname = get<string>(luaGetfromKey(L, "Name"));
+		curMethod.AddMember("Code", Value().SetString(curCode.c_str(), alloc), alloc);
+		curMethod.AddMember("Scope", Value(scope), alloc);
+		curMethod.AddMember("ExecSpace", Value(execspace), alloc);
+		curMethod.AddMember("Attributes", Value().SetArray(), alloc);
+		curMethod.AddMember("Name", Value().SetString(mname.c_str(), alloc), alloc);
+		
+		dest.PushBack(curMethod, alloc);
+
+		lua_pop(L, 1);
+	}
+}
+
+void eventIterate(lua_State *L, Value& dest, rapidjson::MemoryPoolAllocator<>& alloc, queue<string>& codeblocks) {
+	while(lua_next(L, -2)) {
+		Value curEvent;
+		curEvent.SetObject();
+		string ehname = get<string>(luaGetfromKey(L, "Name"));
+		string eventname = get<string>(luaGetfromKey(L, "EventName"));
+		string target = get<string>(luaGetfromKey(L, "Target"));
+		string curCode = codeblocks.front();
+		codeblocks.pop();
+		int scope = get<int>(luaGetfromKey(L, "Scope"));
+		int execspace = get<int>(luaGetfromKey(L, "ExecSpace"));
+
+		curEvent.AddMember("Name", Value().SetString(ehname.c_str(), alloc), alloc);
+		curEvent.AddMember("EventName", Value().SetString(eventname.c_str(), alloc), alloc);
+		curEvent.AddMember("Target", (target == "\v" ? Value().SetNull() : Value().SetString(target.c_str(), alloc)), alloc);
+		curEvent.AddMember("Code", Value().SetString(curCode.c_str(), alloc), alloc);
+		curEvent.AddMember("Scope", Value(scope), alloc);
+		curEvent.AddMember("ExecSpace", Value(execspace), alloc);
+
+		dest.PushBack(curEvent, alloc);
+
+		lua_pop(L, 1);
+	}
+}
+
+int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<string>& codeblocks) {
+	lua_State *L = luaL_newstate();
+	int err = luaL_dostring(L, stringData.c_str());
+	if (err) return 1;
+
+	lua_getglobal(L, "unpackedContents");
+	if (!lua_istable(L, -1)) return 1;
+
+	string uniqueIdentifier = get<string>(luaGetfromKey(L, "uniqueIdentifier"));
+	string bundleIdentifier = get<string>(luaGetfromKey(L, "bundleIdentifier"));
+	string category = get<string>(luaGetfromKey(L, "category"));
+	string entryId = get<string>(luaGetfromKey(L, "entryId"));
+
+	string fullId = category + "://" + entryId;
+	destId = fullId;
+	string fullCategory = "x-mod/" + category;
+
+	v.push_back("\n " + uniqueIdentifier);
+	v.push_back(bundleIdentifier);
+	v.push_back(fullId);
+	v.push_back(fullCategory);
+
+	lua_pushstring(L, "contents");
+	lua_gettable(L, -2);
+
+	Document jsonObj;
+	jsonObj.SetObject();
+	auto& alloc = jsonObj.GetAllocator();
+
+	lua_pushstring(L, "CoreVersion");
+	lua_gettable(L, -2);
+	Value coreVersion;
+	coreVersion.SetObject();
+	int cmajor = get<int>(luaGetfromKey(L, "Major")), cminor = get<int>(luaGetfromKey(L, "Minor"));
+	coreVersion.AddMember("Major", Value(cmajor), alloc);
+	coreVersion.AddMember("Minor", Value(cminor), alloc);
+	jsonObj.AddMember("CoreVersion", coreVersion, alloc);
+	lua_pop(L, 1);
+
+	lua_pushstring(L, "ScriptVersion");
+	lua_gettable(L, -2);
+	Value scriptVersion;
+	scriptVersion.SetObject();
+	int smajor = get<int>(luaGetfromKey(L, "Major")), sminor = get<int>(luaGetfromKey(L, "Minor"));
+	scriptVersion.AddMember("Major", Value(smajor), alloc);
+	scriptVersion.AddMember("Minor", Value(sminor), alloc);
+	jsonObj.AddMember("ScriptVersion", scriptVersion, alloc);
+	lua_pop(L, 1);
+
+	string description = get<string>(luaGetfromKey(L, "Description"));
+	string id = get<string>(luaGetfromKey(L, "Id"));
+	int language = get<int>(luaGetfromKey(L, "Language"));
+	string name = get<string>(luaGetfromKey(L, "Name"));
+	int stype = get<int>(luaGetfromKey(L, "Type"));
+	int ssource = get<int>(luaGetfromKey(L, "Source"));
+	string target = get<string>(luaGetfromKey(L, "Target"));
+	string modifytime = get<string>(luaGetfromKey(L, "ModifyTime"));
+
+	jsonObj.AddMember("Description", Value().SetString(description.c_str(), alloc), alloc);
+	jsonObj.AddMember("Id", Value().SetString(id.c_str(), alloc), alloc);
+	jsonObj.AddMember("Language", Value(language), alloc);
+	jsonObj.AddMember("Name", Value().SetString(name.c_str(), alloc), alloc);
+	jsonObj.AddMember("Type", Value(stype), alloc);
+	jsonObj.AddMember("Source", Value(ssource), alloc);
+	jsonObj.AddMember("Target", (target == "\v" ? Value().SetNull() : Value().SetString(target.c_str(), alloc)), alloc);
+	jsonObj.AddMember("ModifyTime", Value().SetString(modifytime.c_str(), alloc), alloc);
+
+	lua_pushstring(L, "Properties");
+	lua_gettable(L, -2);
+	lua_pushnil(L);
+	Value properties;
+	properties.SetArray();
+	propertyIterate(L, properties, alloc);
+	jsonObj.AddMember("Properties", properties, alloc);
+	lua_pop(L, 1);
+
+	lua_pushstring(L, "Methods");
+	lua_gettable(L, -2);
+	lua_pushnil(L);
+	Value methods;
+	methods.SetArray();
+	methodIterate(L, methods, alloc, codeblocks);
+	jsonObj.AddMember("Methods", methods, alloc);
+	lua_pop(L, 1);
+
+	lua_pushstring(L, "EntityEventHandlers");
+	lua_gettable(L, -2);
+	lua_pushnil(L);
+	Value events;
+	events.SetArray();
+	eventIterate(L, events, alloc, codeblocks);
+	jsonObj.AddMember("EntityEventHandlers", events, alloc);
+	lua_pop(L, 1);
+
+	StringBuffer buffer;
+	Writer<StringBuffer> writer(buffer);
+	jsonObj.Accept(writer);
+	string convertedString = buffer.GetString();
+	v.push_back(convertedString);
+
+	return 0;
 }
 
 string packMod(string myPath, string outPath) {
@@ -410,8 +636,9 @@ string packMod(string myPath, string outPath) {
 				stringData = regex_replace(stringData, cbHead, "Code = ", regex_constants::format_first_only);
 				stringData = regex_replace(stringData, cbTail, ",$1", regex_constants::format_first_only);
 			}
-			lua_State *L = luaL_newstate();
-		}
+			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks);
+			if (luaDecodeResult) return packError + "Invalid lua chunk in:" + originalFilename;
+		}	
 		else {
 			if (extension != ".json") return packError + "There is a non-codeblock entry with invalid extension: " + originalFilename;
 			const char* fullJson = stringData.c_str();
@@ -419,8 +646,8 @@ string packMod(string myPath, string outPath) {
 			jsonObj.Parse(fullJson);
 			if (jsonObj.HasParseError()) return packError + "Invalid json inside: " + originalFilename;
 
-			fullId = string(jsonObj["catregory"].GetString()) + "://" + string(jsonObj["entryId"].GetString());
-			fullCategory = "x-mod/" + string(jsonObj["catregory"].GetString());
+			fullId = string(jsonObj["category"].GetString()) + "://" + string(jsonObj["entryId"].GetString());
+			fullCategory = "x-mod/" + string(jsonObj["category"].GetString());
 
 			v.push_back("\n " + string(jsonObj["uniqueIdentifier"].GetString()));
 			v.push_back(jsonObj["bundleIdentifier"].GetString());
@@ -433,7 +660,8 @@ string packMod(string myPath, string outPath) {
 					dirIndex.push_back(fullId);
 					dirTree.push_back({});
 				}
-				if (jsonObj["contents"][0]["name"] == "RookDesk") rootDirNum = dirNode[fullId];
+				string cd = jsonObj["contents"][0]["name"].GetString();
+				if (cd == "RootDesk") rootDirNum = dirNode[fullId];
 
 				auto children = jsonObj["contents"][0]["child_list"].GetArray();
 				for (auto& child : children) {
@@ -447,26 +675,36 @@ string packMod(string myPath, string outPath) {
 				}
 			}
 
-			auto contents = jsonObj["contents"].GetArray();
-			for (auto& content : contents) {
-				v.push_back("\n$" + string(content["entryId"].GetString()));
-				v.push_back(content["entryPath"].GetString());
+			if (category == "gamelogic" || category == "map" || category == "ui") {
+				auto contents = jsonObj["contents"].GetArray();
+				for (auto& content : contents) {
+					v.push_back("\n$" + string(content["entryId"].GetString()));
+					v.push_back(content["entryPath"].GetString());
 
+					StringBuffer buffer;
+					Writer<StringBuffer> writer(buffer);
+					content["contents"][0].Accept(writer);
+					string convertedString = buffer.GetString();
+					v.push_back(convertedString);
+
+					if (content.HasMember("miscs")){
+						string miscString = "";
+						auto miscs = content["miscs"].GetArray();
+						for (auto& misc : miscs) {
+							miscString += (miscString.size() ? "," : "") + string(misc.GetString());
+						}
+						v.push_back(miscString);
+					}
+				}
+			}
+			else {
 				StringBuffer buffer;
 				Writer<StringBuffer> writer(buffer);
-				content["contents"][0].Accept(writer);
+				jsonObj["contents"][0].Accept(writer);
 				string convertedString = buffer.GetString();
 				v.push_back(convertedString);
-
-				string miscString = "";
-				auto miscs = content["miscs"].GetArray();
-				for (auto& misc : miscs) {
-					miscString += (miscString.size() ? "," : "") + string(misc.GetString());
-				}
-				v.push_back(miscString);
 			}
 		}
-
 		if (discoveredEntries.count(fullId)) return vaildateError + "There a pair of duplicated id: " + fullId;
 		else discoveredEntries.insert(fullId);
 
@@ -479,10 +717,11 @@ string packMod(string myPath, string outPath) {
 	}
 
 	vector<bool> visited(dirNode.size());
-	if (!dirDFS(rootDirNum, discoveredEntries, dirTree, dirIndex, visited)) return vaildateError + "Invalid directory structure";
+	if (rootDirNum == -1 && dirNode.size()) return vaildateError + "Invalid directory structure";
+	if (rootDirNum != -1 && !dirDFS(rootDirNum, discoveredEntries, dirTree, dirIndex, visited)) return vaildateError + "Invalid directory structure";
 
 	ofstream fout(outPath, ios::binary);
-	fout << "\n\0";
+	fout << '\n' << '\0';
 	std::sort(sorted.begin(), sorted.end());
 	for (auto& block : sorted) fout << block.second;
 	fout.close();
