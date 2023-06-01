@@ -34,7 +34,7 @@ MapleStory Wolrds .mod file packing/unpacking tools with visiblity.
 - [GNU Toolchain 12.0+](https://www.gnu.org/)
 - [Lua 5.4+](http://www.lua.org/)
 - [rapidjson 1.1+](http://rapidjson.org/)
-- [CMake 3.26+](https://cmake.org/) version 3.26 or higher
+- [CMake 3.26+](https://cmake.org/)
 
 ## Contact
 SeokguKim <rokja97@naver.com>
