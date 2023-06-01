@@ -1,4 +1,7 @@
-# ShortSwordSlicer
+# :dagger: ShortSwordSlicer
+
+![sss](sss.ico)
+
 MapleStory Wolrds .mod file packing/unpacking tools with visiblity.  
 시인성을 가진 메이플스토리 월드 .mod 파일 패킹/언패킹 도구
 
@@ -25,13 +28,13 @@ MapleStory Wolrds .mod file packing/unpacking tools with visiblity.
 ---
 
 ## Dependencies
-- [Lua 5.4](http://www.lua.org/)
+- [Lua 5.4+](http://www.lua.org/)
 
 ## Bulid Dependencies
-- [GNU Toolchain 12](https://www.gnu.org/)
-- [Lua 5.4](http://www.lua.org/)
-- [rapidjson](http://rapidjson.org/)
-- [CMake](https://cmake.org/) version 3.26 or higher
+- [GNU Toolchain 12.0+](https://www.gnu.org/)
+- [Lua 5.4+](http://www.lua.org/)
+- [rapidjson 1.1+](http://rapidjson.org/)
+- [CMake 3.26+](https://cmake.org/) version 3.26 or higher
 
 ## Contact
-rokja97@naver.com
+SeokguKim <rokja97@naver.com>
