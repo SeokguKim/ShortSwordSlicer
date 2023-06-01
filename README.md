@@ -24,6 +24,9 @@ MapleStory Wolrds .mod file packing/unpacking tools with visiblity.
 4. 끝.
 ---
 
+## Dependencies
+- [Lua](http://www.lua.org/)
+
 ## Bulid Dependencies
 - [GNU Toolchain](https://www.gnu.org/)
 - [Lua](http://www.lua.org/)

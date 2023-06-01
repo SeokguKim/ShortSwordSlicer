@@ -1,4 +1,6 @@
-﻿#include "ConcatenatedHeader.h"
+﻿//SeokkguKim's ShortSwordSlicer
+//Unpack and pack .mod
+#include "ConcatenatedHeader.h"
 using namespace std;
 using namespace rapidjson;
 
