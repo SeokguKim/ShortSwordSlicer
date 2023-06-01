@@ -25,11 +25,11 @@ MapleStory Wolrds .mod file packing/unpacking tools with visiblity.
 ---
 
 ## Dependencies
-- [Lua](http://www.lua.org/)
+- [Lua 5.4](http://www.lua.org/)
 
 ## Bulid Dependencies
-- [GNU Toolchain](https://www.gnu.org/)
-- [Lua](http://www.lua.org/)
+- [GNU Toolchain 12](https://www.gnu.org/)
+- [Lua 5.4](http://www.lua.org/)
 - [rapidjson](http://rapidjson.org/)
 - [CMake](https://cmake.org/) version 3.26 or higher
 
