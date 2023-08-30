@@ -38,3 +38,5 @@ MapleStory Wolrds .mod file packing/unpacking tools with visiblity.
 
 ## Contact
 SeokguKim <rokja97@naver.com>
+
+This project is licensed under the terms of the MIT license.
