@@ -32,8 +32,6 @@
 using namespace std;
 using namespace rapidjson;
 
-vector<string> argsStack;
-set<string> discoveredEntries;
 const string initError = "Error occured while initializing. ";
 const string unpackError = "Error occured while unpacking. ";
 const string packError = "Error occured while packing. ";
@@ -72,6 +70,18 @@ size_t getLength(unsigned char*& data, size_t& idx) {
 	return partLen;
 }
 
+size_t getLength(string& data, size_t& idx) {
+	size_t partLen = 0, f = 1;
+
+	while (data[++idx] & 128) {
+		partLen += (data[idx] & 127) * f;
+		f *= 128;
+	}
+	partLen += (data[idx++] & 127) * f;
+
+	return partLen;
+}
+
 string tabLine(size_t n) {
 	string str(n, '\t');
 	return str;
@@ -96,14 +106,14 @@ string stringify(const Value& v) {
 	}
 }
 
-void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, string prevName) {
+void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, string prevName, vector<string> &argsStack) {
 	if (curObj.IsArray()) {
 		auto items = curObj.GetArray();
 		for (auto& item : items) {
 			auto curType = item.GetType();
 			if (curType == Type::kArrayType || curType == Type::kObjectType) {
 				resString += tabLine(depth) + "{\n";
-				jsonRecursiveLua(item, resString, depth + 1, prevName);
+				jsonRecursiveLua(item, resString, depth + 1, prevName, argsStack);
 				resString += tabLine(depth) + "},\n";
 			}
 			else if (curType == Type::kStringType){
@@ -142,7 +152,9 @@ void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, stri
 			auto curType = curGroup.value.GetType();
 			if (curType == Type::kArrayType || curType == Type::kObjectType) {
 				resString += "{\n";
-				jsonRecursiveLua(curGroup.value, resString, depth + 1, curName);
+				if (prevName != "Properties" || curName != "Attributes") {
+					jsonRecursiveLua(curGroup.value, resString, depth + 1, curName, argsStack);
+				}
 				resString += tabLine(depth) + "},\n";
 			}
 			else if (curType == Type::kStringType){
@@ -175,11 +187,7 @@ string unpackMod(string myPath, string outPath) {
 	fin.read((char*)data, len);
 	fin.close();
 	
-	regex hashInfo("\\s(\\w+)");
-	regex idInfo("\x1A[\\s\\S]+?(\\w+):\\/\\/([^\"]+)");
-	regex jsonInfo("\\{[\\s\\S]+\\}");
-	regex subInfo("\x1A[\\s\\S]+?\n\\$((?:\\w{8}-\\w{4}-\\w{4}-\\w{4}-\\w{12}))\x12[\\s\\S]+?(?:(\\/[\\w\\/]+))\x1A[\\s\\S]+?(?:(\\{[^\x1A]+\\}))(\"[\\s\\S]+?((?:[\\x00-\\x7F])([\\w\\.\\,]+)))?");
-	regex miscslicer("[\\w\\.]+");
+	regex miscslicer("[\\w\\d\\_\\.]+");
 
 	size_t idx = 2;
 	
@@ -187,18 +195,28 @@ string unpackMod(string myPath, string outPath) {
 		size_t curBlockLen = getLength(data, idx);
 		string curStr(data + idx, data + idx + curBlockLen);
 		idx += curBlockLen;
+		
+		size_t subIdx = 0;
 
-		smatch m;
-		regex_search(curStr, m, hashInfo);
-		string uniqueIdentifier = m[1];
-		curStr = m.suffix();
-		regex_search(curStr, m, hashInfo);
-		string bundleIdentifier = m[1];
-		curStr = m.suffix();
+		size_t uniqueIdLen = getLength(curStr, subIdx);
+		string uniqueIdentifier = curStr.substr(subIdx, uniqueIdLen);
+		subIdx += uniqueIdLen;
 
-		regex_search(curStr, m, idInfo);
-		string category = m[1], entryId = m[2];
-		curStr = m.suffix();
+		size_t bundleIdLen = getLength(curStr, subIdx);
+		string bundleIdentifier = curStr.substr(subIdx, bundleIdLen);
+		subIdx += bundleIdLen;
+
+		size_t categoryLen = getLength(curStr, subIdx);
+		string categoryId = curStr.substr(subIdx, categoryLen);
+		subIdx += categoryLen;
+		string category = categoryId.substr(0, categoryId.find(":"));
+		string entryId = categoryId.substr(categoryId.find("://") + 3);
+		
+		size_t entryIdLen = getLength(curStr, subIdx);
+		subIdx += entryIdLen;
+
+		size_t contentLen = getLength(curStr, subIdx);
+
 		string newpath = outPath + "\\" + category;
 		filesystem::create_directories(newpath);
 
@@ -212,8 +230,8 @@ string unpackMod(string myPath, string outPath) {
 			resString += tabLine(1) + "entryId = \"" + entryId + "\",\n";
 			resString += tabLine(1) + "contents = {\n";
 
-			regex_search(curStr, m, jsonInfo);
-			string fullString = m[0].str();
+			size_t jsonLen = getLength(curStr, subIdx);
+			string fullString =  curStr.substr(subIdx, jsonLen);	
 		
 			const char* fullJson = fullString.c_str();
 			Document jsonObj;
@@ -223,7 +241,8 @@ string unpackMod(string myPath, string outPath) {
 			if (jsonObj.HasMember("Name")) scriptName = jsonObj["Name"].GetString();
 			else if (jsonObj.HasMember("name")) scriptName = jsonObj["name"].GetString();
 
-			jsonRecursiveLua(jsonObj, resString, 2, "contentRoot");
+			vector<string> argsStack;
+			jsonRecursiveLua(jsonObj, resString, 2, "contentRoot", argsStack);
 			resString += tabLine(1) + "}\n";
 			resString += "}\n\nreturn unpackedContents";
 		}
@@ -236,23 +255,37 @@ string unpackMod(string myPath, string outPath) {
 			resString += tabLine(1) + "\"contents\": [\n";
 
 			if (category == "gamelogic" || category == "map" || category == "ui") {
-				auto subs = sregex_iterator(curStr.begin(), curStr.end() , subInfo);
-				auto sube = sregex_iterator();
+				curStr = curStr.substr(subIdx, contentLen);
+				subIdx = 2;
+				size_t subLen = curStr.length();
+				while (subIdx < subLen) {
+					size_t curSubLen = getLength(curStr, subIdx);
+					string curSub = curStr.substr(subIdx, curSubLen);
 
-				for (auto sit = subs; sit != sube; sit++) {
-					smatch cursub = *sit;
-					resString += tabLine(2) + "{\n";
-					resString += tabLine(3) + "\"entryId\": \"" + cursub[1].str() + "\",\n";
-					resString += tabLine(3) + "\"entryPath\": \"" + cursub[2].str() + "\",\n";
-					resString += tabLine(3) + "\"contents\": [\n";
+					size_t curSubIdx = 0;
 					
-					if (category == "ui" && sit == subs) scriptName = cursub[2].str().substr(4);
-					string fullString = cursub[3].str();
+					resString += tabLine(2) + "{\n";
+	
+					size_t curSubIdLen = getLength(curSub, curSubIdx);
+					string subId = curSub.substr(curSubIdx, curSubIdLen);
+					resString += tabLine(3) + "\"entryId\": \"" + subId + "\",\n";
+					curSubIdx += curSubIdLen;
+					
+					size_t curSub_catLen = getLength(curSub, curSubIdx);
+					string sub_cat = curSub.substr(curSubIdx, curSub_catLen);
+					resString += tabLine(3) + "\"entryPath\": \"" + sub_cat + "\",\n";
+					curSubIdx += curSub_catLen;
 
-					const char* fullJson = fullString.c_str();
+					resString += tabLine(3) + "\"contents\": [\n";
+					size_t curSubMainLen = getLength(curSub, curSubIdx);
+					string subMain = curSub.substr(curSubIdx, curSubMainLen);
+					curSubIdx += curSubMainLen;
+
+					const char* fullJson = subMain.c_str();
 					Document jsonObj;
 					jsonObj.Parse(fullJson);
 					if (jsonObj.HasParseError()) return unpackError + "Invalid json inside: " + category + ", " + entryId;
+					if (jsonObj.HasMember("name")) scriptName = jsonObj["name"].GetString();
 
 					StringBuffer buffer;
 					PrettyWriter<StringBuffer> writer(buffer);
@@ -264,9 +297,12 @@ string unpackMod(string myPath, string outPath) {
 
 					resString += "\n" + tabLine(3) + "],\n";
 					resString += tabLine(3) + "\"miscs\": [\n";
-					if (cursub[5].str().size()) {
-						string miscs = cursub[5].str();
-						if (miscs.back() == 'X') miscs.pop_back();
+
+					if (curSub[curSubIdx] == '\"') {
+						size_t curSub_miscsLen = getLength(curSub, curSubIdx);
+						string miscs = curSub.substr(curSubIdx, curSub_miscsLen);
+						curSubIdx += curSub_miscsLen;
+						
 						auto ms = sregex_iterator(miscs.begin(), miscs.end() , miscslicer);
 						auto me = sregex_iterator();
 						
@@ -278,13 +314,14 @@ string unpackMod(string myPath, string outPath) {
 					}
 					resString += tabLine(3) + "]\n";
 					resString += tabLine(2) + "},\n";
+					subIdx += curSubLen;		
 				}
 				truncateRest(resString);
 				if (category == "gamelogic") scriptName = "common";
 			}
 			else {
-				regex_search(curStr, m, jsonInfo);
-				string fullString = m[0].str();
+				size_t jsonLen = getLength(curStr, subIdx);
+				string fullString =  curStr.substr(subIdx, jsonLen);
 
 				const char* fullJson = fullString.c_str();
 				Document jsonObj;
@@ -329,10 +366,10 @@ string getByte(size_t partLen) {
 string blockConcat(vector<string>& v) {
 	if (v.size() < 5) return packError + "Invalid sequence while concatenating normal block";
 
-	string res = v[0];
-	res += "\x12\x20" + v[1];
+	string res = "\n" + getByte(v[0].length()) + v[0];
+	res += "\x12" + getByte(v[1].length()) + v[1];
 	res += "\x1A" + getByte(v[2].length()) + v[2];
-	res += "\x22" + getByte(v[3].size()) + v[3];
+	res += "\x22" + getByte(v[3].length()) + v[3];
 	
 	string innerSide = "\x12";
 	innerSide += getByte(v[4].length());
@@ -349,8 +386,8 @@ string blockConcat(vector<string>& v) {
 string hierarchyConcat(vector<string>& v) {
 	if (v.size() < 5) return packError + "Invalid sequence while concatenating hierarchy block";
 
-	string res = v[0];
-	res += "\x12\x20" + v[1];
+	string res = "\n" + getByte(v[0].length()) + v[0];
+	res += "\x12" + getByte(v[1].length()) + v[1];
 	res += "\x1A" + getByte(v[2].length()) + v[2];
 	res += "\x22" + getByte(v[3].length()) + v[3];
 
@@ -358,7 +395,8 @@ string hierarchyConcat(vector<string>& v) {
 	string innerSide = "\x08\x01";
 
 	while (idx < v.size()) {
-		string tmp = v[idx++];
+		string tmp = "\n" + getByte(v[idx].length());
+		tmp += v[idx++];
 		tmp += "\x12" + getByte(v[idx].length());
 		tmp += v[idx++];
 		tmp += "\x1A" + getByte(v[idx].length());
@@ -379,19 +417,6 @@ string hierarchyConcat(vector<string>& v) {
 	res = getByte(res.length()) + res;
 	res = "\x12" + res;
 	
-	return res;
-}
-
-bool dirDFS(int dirNum, vector<vector<int>>& dirTree, vector<string>& dirIndex, vector<bool>& visited) {
-	if (visited[dirNum]) return 0;
-	if (dirIndex[dirNum].find("component://") == -1 && dirIndex[dirNum].find("gamelogic://") == -1 && !discoveredEntries.count(dirIndex[dirNum]))
-		return 0;
-	visited[dirNum] = 1;
-
-	bool res = 1;
-	for (int& dir : dirTree[dirNum]) 
-		res &= dirDFS(dir, dirTree, dirIndex, visited);
-
 	return res;
 }
 
@@ -516,7 +541,7 @@ void eventIterate(lua_State *L, Value& dest, rapidjson::MemoryPoolAllocator<>& a
 	}
 }
 
-int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<string>& codeblocks) {
+int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<string>& codeblocks, string& scriptName) {
 	lua_State *L = luaL_newstate();
 	int err = luaL_dostring(L, stringData.c_str());
 	if (err) return 1;
@@ -533,7 +558,7 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 	destId = fullId;
 	string fullCategory = "x-mod/" + category;
 
-	v.push_back("\n " + uniqueIdentifier);
+	v.push_back(uniqueIdentifier);
 	v.push_back(bundleIdentifier);
 	v.push_back(fullId);
 	v.push_back(fullCategory);
@@ -573,6 +598,10 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 	int ssource = get<int>(luaGetfromKey(L, "Source"));
 	string target = get<string>(luaGetfromKey(L, "Target"));
 	string modifytime = get<string>(luaGetfromKey(L, "ModifyTime"));
+	scriptName = name;
+	for (int i = 0; i < scriptName.length(); i++) {
+		if ('A' <= scriptName[i] && scriptName[i] <= 'Z') scriptName[i] += 32;
+	}
 
 	jsonObj.AddMember("Description", Value().SetString(description.c_str(), alloc), alloc);
 	jsonObj.AddMember("Id", Value().SetString(id.c_str(), alloc), alloc);
@@ -621,11 +650,8 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 
 string packMod(string myPath, string outPath) {
 	vector<pair<string, string>> sorted;
-	map<string, int> dirNode;
-	vector<string> dirIndex;
-	vector<vector<int>> dirTree;
-	int rootDirNum = -1, dirCnt = 0;
 
+	set<string> missingCheck, duplicatedCheck;
 	regex cbHead("Code\\s*=\\s*function\\s*\\(\\s*(\\w+\\,\\s*)*\\w*\\s*\\)");
 	regex cbTail("end\\,(\\s*Scope\\s*=\\s*\\d+\\s*\\,[\\s\n]*ExecSpace\\s*=\\s*\\d+)");
 	regex cbTabs("(^|\n)\t{4,5}");
@@ -668,8 +694,12 @@ string packMod(string myPath, string outPath) {
 				stringData = regex_replace(stringData, cbHead, "Code = ", regex_constants::format_first_only);
 				stringData = regex_replace(stringData, cbTail, ",$1", regex_constants::format_first_only);
 			}
-			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks);
+			string scriptName = "";
+			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks, scriptName);
 			if (luaDecodeResult) return packError + "Invalid lua chunk in:" + originalFilename;
+			if (duplicatedCheck.count(scriptName) || duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
+			duplicatedCheck.insert(scriptName);
+			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}	
 		else {
 			if (extension != ".json") return packError + "There is a non-codeblock entry with invalid extension: " + originalFilename;
@@ -681,38 +711,24 @@ string packMod(string myPath, string outPath) {
 			fullId = string(jsonObj["category"].GetString()) + "://" + string(jsonObj["entryId"].GetString());
 			fullCategory = "x-mod/" + string(jsonObj["category"].GetString());
 
-			v.push_back("\n " + string(jsonObj["uniqueIdentifier"].GetString()));
+			v.push_back(string(jsonObj["uniqueIdentifier"].GetString()));
 			v.push_back(jsonObj["bundleIdentifier"].GetString());
 			v.push_back(fullId);
 			v.push_back(fullCategory);
 
 			if (category == "directory") {
-				dirCnt++;
-
-				if (!dirNode.count(fullId)) {
-					dirNode[fullId] = dirNode.size();
-					dirIndex.push_back(fullId);
-					dirTree.push_back({});
-				}
 				string cd = jsonObj["contents"][0]["name"].GetString();
-				if (cd == "RootDesk") rootDirNum = dirNode[fullId];
-
 				auto children = jsonObj["contents"][0]["child_list"].GetArray();
 				for (auto& child : children) {
 					string curChild = child.GetString();
-					if (!dirNode.count(curChild)) {
-						dirNode[curChild] = dirNode.size();
-						dirIndex.push_back(curChild);
-						dirTree.push_back({});
-					}
-					dirTree[dirNode[fullId]].push_back(dirNode[curChild]);
+					missingCheck.insert(curChild);
 				}
 			}
 
 			if (category == "gamelogic" || category == "map" || category == "ui") {
 				auto contents = jsonObj["contents"].GetArray();
 				for (auto& content : contents) {
-					v.push_back("\n$" + string(content["entryId"].GetString()));
+					v.push_back(string(content["entryId"].GetString()));
 					v.push_back(content["entryPath"].GetString());
 
 					StringBuffer buffer;
@@ -738,9 +754,10 @@ string packMod(string myPath, string outPath) {
 				string convertedString = buffer.GetString();
 				v.push_back(convertedString);
 			}
+
+			if (duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
+			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}
-		if (discoveredEntries.count(fullId)) return vaildateError + "There a pair of duplicated id: " + fullId;
-		else discoveredEntries.insert(fullId);
 
 		if (category == "gamelogic" || category == "map" || category == "ui") {
 			sorted.push_back({fullId, hierarchyConcat(v)});
@@ -750,10 +767,9 @@ string packMod(string myPath, string outPath) {
 		}
 	}
 
-	vector<bool> visited(dirNode.size());
-	if (rootDirNum == -1 && dirCnt) return vaildateError + "Invalid directory structure";
-	if (rootDirNum != -1 && !dirDFS(rootDirNum, dirTree, dirIndex, visited)) return vaildateError + "Invalid directory structure";
-
+	for (auto entry : missingCheck) {
+		if (!duplicatedCheck.count(entry.substr(entry.find("://") + 3))) return packError + "There is no entry with Id or Name: " + entry.substr(entry.find("://") + 3);
+	}
 	ofstream fout(outPath, ios::binary);
 	fout << '\n' << '\0';
 	std::sort(sorted.begin(), sorted.end());
@@ -783,8 +799,5 @@ int main(int argc, char** argv) {
 
 		if (ext == 1) cout << unpackMod(myPath, outPath) << "\n";
 		else cout << packMod(myPath, outPath) << "\n";
-		
-		argsStack.clear();
-		discoveredEntries.clear();
 	}
 }
