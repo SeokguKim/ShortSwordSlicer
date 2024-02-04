@@ -17,6 +17,8 @@
 #include <rapidjson/writer.h>
 #include <rapidjson/prettywriter.h>
 #include <lua.hpp>
+#include <chrono>
+#include <thread>
 #ifdef _WIN32
     #include <io.h>
     #include <fcntl.h>
