@@ -37,23 +37,11 @@ const string unpackError = "Error occured while unpacking. ";
 const string packError = "Error occured while packing. ";
 const string vaildateError = "Error occured while validating. ";
 
-int extensioncheck(string myPath, string& outPath) {
+int extensioncheck(string& myPath) {
 	auto curInput = filesystem::directory_entry(myPath);
 
-	if (curInput.is_directory()) {
-		outPath = myPath;
-		while (filesystem::exists(outPath + ".mod")) outPath += "_new";
-		outPath += ".mod";
-		return 2;
-	}
-
-	if (curInput.path().extension().string() == ".mod") {
-		outPath = curInput.path().parent_path().string();
-		if (outPath.back() != '/' && outPath.back() != '\\') outPath += "/";
-		outPath += curInput.path().stem().string();
-		while (filesystem::exists(outPath)) outPath += "_new";
-		return 1;
-	}
+	if (curInput.is_directory()) return 2;
+	if (curInput.path().extension().string() == ".mod")	return 1;
 
 	return 0;
 }
@@ -175,7 +163,7 @@ void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, stri
 	truncateRest(resString);
 }
 
-string unpackMod(string myPath, string outPath) {
+string unpackMod(string& myPath) {
 	ifstream fin(myPath, ios_base::in | ios_base::binary);
 	if (!fin) return unpackError + "Unable to read .mod file: " + myPath;
 
@@ -190,7 +178,15 @@ string unpackMod(string myPath, string outPath) {
 	regex miscslicer("[\\w\\d\\_\\.]+");
 
 	size_t idx = 2;
-	
+
+	auto file = filesystem::directory_entry(myPath);
+	auto dir = file.path().parent_path().u8string();
+	auto stem = file.path().filename().stem().u8string();
+	cout << stem << "\n";
+	auto nd = dir + "\\" + stem;
+	cout << nd << "\n";
+	while (filesystem::exists(nd)) nd += "_new";
+
 	while (idx < len) {
 		size_t curBlockLen = getLength(data, idx);
 		string curStr(data + idx, data + idx + curBlockLen);
@@ -217,7 +213,8 @@ string unpackMod(string myPath, string outPath) {
 
 		size_t contentLen = getLength(curStr, subIdx);
 
-		string newpath = outPath + "\\" + category;
+		
+		auto newpath = nd + "\\" + category;
 		filesystem::create_directories(newpath);
 
 		string scriptName = entryId;
@@ -285,8 +282,7 @@ string unpackMod(string myPath, string outPath) {
 					Document jsonObj;
 					jsonObj.Parse(fullJson);
 					if (jsonObj.HasParseError()) return unpackError + "Invalid json inside: " + category + ", " + entryId;
-					if (jsonObj.HasMember("name")) scriptName = jsonObj["name"].GetString();
-
+					
 					StringBuffer buffer;
 					PrettyWriter<StringBuffer> writer(buffer);
 					jsonObj.Accept(writer);
@@ -342,12 +338,12 @@ string unpackMod(string myPath, string outPath) {
 			resString += tabLine(1) + "]\n}";
 		}
 
-		string newfile = newpath + "\\" + category + "-" + scriptName + (category == "codeblock" ? ".lua" : ".json");
+		auto newfile = newpath + "\\" + category + "-" + scriptName + (category == "codeblock" ? ".lua" : ".json");
 		ofstream fout(newfile, ios::binary | std::ios::trunc);
 		fout << resString;
 		fout.close();
 	}
-	return "Succefully unpacked your files in.." + outPath;
+	return "Succefully unpacked your files in.." + myPath;
 }
 
 string getByte(size_t partLen) {
@@ -648,7 +644,7 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 	return 0;
 }
 
-string packMod(string myPath, string outPath) {
+string packMod(string& myPath) {
 	vector<pair<string, string>> sorted;
 
 	set<string> missingCheck, duplicatedCheck;
@@ -770,13 +766,17 @@ string packMod(string myPath, string outPath) {
 	for (auto entry : missingCheck) {
 		if (!duplicatedCheck.count(entry.substr(entry.find("://") + 3))) return packError + "There is no entry with Id or Name: " + entry.substr(entry.find("://") + 3);
 	}
+	
+	string outPath = ".mod";
+	outPath.reserve(outPath.size() + myPath.size());
+	outPath.insert(0, myPath);
 	ofstream fout(outPath, ios::binary);
 	fout << '\n' << '\0';
 	std::sort(sorted.begin(), sorted.end());
 	for (auto& block : sorted) fout << block.second;
 	fout.close();
 
-	return "Succefully packed your files into..." + outPath;
+	return "Succefully packed your files into..." + myPath;
 }
 
 int main(int argc, char** argv) {
@@ -784,20 +784,21 @@ int main(int argc, char** argv) {
 
 	int cnt = 0;
 	while (++cnt) {
+		
 		if (cnt == 1 && argc >= 2) myPath = argv[1];
 		else {
-			cout << "Input path to .mod or directory... X to exit...\n";
+			cout << "Input path to .mod or directory... X or Q to exit...\n";
 			getline(cin, myPath);
 		}
-		if (myPath == "X") return 0 ;
+		if (myPath == "X" || myPath == "x" || myPath == "Q" || myPath == "q") return 0 ;
 
-		int ext = extensioncheck(myPath, outPath);
+		int ext = extensioncheck(myPath);
 		if (!ext) {
 			cout << initError + "Not a valid .mod file or path.\n";
 			continue;
 		}
 
-		if (ext == 1) cout << unpackMod(myPath, outPath) << "\n";
-		else cout << packMod(myPath, outPath) << "\n";
+		if (ext == 1) cout << unpackMod(myPath) << "\n";
+		else cout << packMod(myPath) << "\n";
 	}
 }

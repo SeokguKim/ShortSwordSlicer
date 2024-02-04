@@ -9,6 +9,8 @@
 #include <variant>
 #include <fstream>
 #include <iostream>
+#include <locale>
+#include <codecvt>
 #include <filesystem>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
