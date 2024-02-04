@@ -32,12 +32,12 @@
 using namespace std;
 using namespace rapidjson;
 
-const string initError = "Error occured while initializing. ";
-const string unpackError = "Error occured while unpacking. ";
-const string packError = "Error occured while packing. ";
-const string vaildateError = "Error occured while validating. ";
+const wstring initError = L"Error occured while initializing. ";
+const wstring unpackError = L"Error occured while unpacking. ";
+const wstring packError = L"Error occured while packing. ";
+const wstring vaildateError = L"Error occured while validating. ";
 
-int extensioncheck(string& myPath) {
+int extensioncheck(wstring& myPath) {
 	auto curInput = filesystem::directory_entry(myPath);
 
 	if (curInput.is_directory()) return 2;
@@ -163,9 +163,10 @@ void jsonRecursiveLua(const Value& curObj, string& resString, size_t depth, stri
 	truncateRest(resString);
 }
 
-string unpackMod(string& myPath) {
-	ifstream fin(myPath, ios_base::in | ios_base::binary);
-	if (!fin) return unpackError + "Unable to read .mod file: " + myPath;
+wstring unpackMod(wstring& myPath) {
+	filesystem::path mymyPath(myPath);
+	ifstream fin(mymyPath, ios_base::in | ios_base::binary);
+	if (!fin) return unpackError + L"Unable to read .mod file: " + myPath;
 
 	fin.seekg(0, fin.end);
 	size_t len = (size_t)fin.tellg();
@@ -179,13 +180,9 @@ string unpackMod(string& myPath) {
 
 	size_t idx = 2;
 
-	auto file = filesystem::directory_entry(myPath);
-	auto dir = file.path().parent_path().u8string();
-	auto stem = file.path().filename().stem().u8string();
-	cout << stem << "\n";
-	auto nd = dir + "\\" + stem;
-	cout << nd << "\n";
-	while (filesystem::exists(nd)) nd += "_new";
+	auto nd = myPath;
+	for (int i = 0; i < 4; i++) nd.pop_back();
+	while (filesystem::exists(nd)) nd += L"_new";
 
 	while (idx < len) {
 		size_t curBlockLen = getLength(data, idx);
@@ -214,7 +211,7 @@ string unpackMod(string& myPath) {
 		size_t contentLen = getLength(curStr, subIdx);
 
 		
-		auto newpath = nd + "\\" + category;
+		auto newpath = nd + L"\\" + wstring(category.begin(), category.end());
 		filesystem::create_directories(newpath);
 
 		string scriptName = entryId;
@@ -233,7 +230,7 @@ string unpackMod(string& myPath) {
 			const char* fullJson = fullString.c_str();
 			Document jsonObj;
 			jsonObj.Parse(fullJson);
-			if (jsonObj.HasParseError()) return "Error occured: Invalid json inside: " + category + ", " + entryId;
+			if (jsonObj.HasParseError()) return L"Error occured: Invalid json inside: " + wstring(category.begin(), category.end()) + L", " + wstring(entryId.begin(), entryId.end());
 
 			if (jsonObj.HasMember("Name")) scriptName = jsonObj["Name"].GetString();
 			else if (jsonObj.HasMember("name")) scriptName = jsonObj["name"].GetString();
@@ -281,7 +278,7 @@ string unpackMod(string& myPath) {
 					const char* fullJson = subMain.c_str();
 					Document jsonObj;
 					jsonObj.Parse(fullJson);
-					if (jsonObj.HasParseError()) return unpackError + "Invalid json inside: " + category + ", " + entryId;
+					if (jsonObj.HasParseError()) return unpackError + L"Invalid json inside: " + wstring(category.begin(), category.end()) + L", " + wstring(entryId.begin(), entryId.end());
 					
 					StringBuffer buffer;
 					PrettyWriter<StringBuffer> writer(buffer);
@@ -322,7 +319,7 @@ string unpackMod(string& myPath) {
 				const char* fullJson = fullString.c_str();
 				Document jsonObj;
 				jsonObj.Parse(fullJson);
-				if (jsonObj.HasParseError()) return unpackError + "Invalid json inside: " + category + ", " + entryId;
+				if (jsonObj.HasParseError()) return unpackError + L"Invalid json inside: " + wstring(category.begin(), category.end()) + L", " + wstring(entryId.begin(), entryId.end());
 
 				StringBuffer buffer;
 				PrettyWriter<StringBuffer> writer(buffer);
@@ -338,12 +335,13 @@ string unpackMod(string& myPath) {
 			resString += tabLine(1) + "]\n}";
 		}
 
-		auto newfile = newpath + "\\" + category + "-" + scriptName + (category == "codeblock" ? ".lua" : ".json");
-		ofstream fout(newfile, ios::binary | std::ios::trunc);
+		auto newfile = newpath + L"\\" + wstring(category.begin(), category.end()) + L"-" + wstring(scriptName.begin(), scriptName.end()) + (category == "codeblock" ? L".lua" : L".json");
+		filesystem::path mynewFile(newfile);
+		ofstream fout(mynewFile, ios::binary | std::ios::trunc);
 		fout << resString;
 		fout.close();
 	}
-	return "Succefully unpacked your files in.." + myPath;
+	return L"Succefully unpacked your files in... " + nd;
 }
 
 string getByte(size_t partLen) {
@@ -360,7 +358,7 @@ string getByte(size_t partLen) {
 }
 
 string blockConcat(vector<string>& v) {
-	if (v.size() < 5) return packError + "Invalid sequence while concatenating normal block";
+	if (v.size() < 5) return "Invalid sequence while concatenating normal block";
 
 	string res = "\n" + getByte(v[0].length()) + v[0];
 	res += "\x12" + getByte(v[1].length()) + v[1];
@@ -380,7 +378,7 @@ string blockConcat(vector<string>& v) {
 }
 
 string hierarchyConcat(vector<string>& v) {
-	if (v.size() < 5) return packError + "Invalid sequence while concatenating hierarchy block";
+	if (v.size() < 5) return "Invalid sequence while concatenating hierarchy block";
 
 	string res = "\n" + getByte(v[0].length()) + v[0];
 	res += "\x12" + getByte(v[1].length()) + v[1];
@@ -644,7 +642,7 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 	return 0;
 }
 
-string packMod(string& myPath) {
+wstring packMod(wstring& myPath) {
 	vector<pair<string, string>> sorted;
 
 	set<string> missingCheck, duplicatedCheck;
@@ -654,14 +652,13 @@ string packMod(string& myPath) {
 
 	for (const auto& file : filesystem::recursive_directory_iterator(myPath)) {
 		if (file.is_directory()) continue;
-		string filePath = file.path().string();
 		string originalFilename = file.path().filename().string();
 		string parentPath = file.path().parent_path().string();
 		string extension = file.path().extension().string();
 		string category = parentPath.substr(parentPath.rfind("\\") + 1);
 
-		ifstream fin(filePath);
-		if (!fin) return packError + "Unable to read file: " + originalFilename;
+		ifstream fin(file.path());
+		if (!fin) return packError + L"Unable to read file: " + wstring(originalFilename.begin(), originalFilename.end());
 
 		stringstream ss;
     	ss << fin.rdbuf();
@@ -673,12 +670,12 @@ string packMod(string& myPath) {
 		string fullId = "";
 		string fullCategory = "";
 		if (category == "codeblock") {
-			if (extension != ".lua") return packError + "There is a codeblock entry with invalid extension: " + originalFilename;
+			if (extension != ".lua") return packError + L"There is a codeblock entry with invalid extension: " + wstring(originalFilename.begin(), originalFilename.end());
 			queue<string> codeblocks;
 			smatch sit;
 			while (regex_search(stringData, sit, cbHead)) {
 				smatch eit;
-				if (!regex_search(stringData, eit, cbTail)) return packError + "Invalid codeblock in: " + originalFilename;
+				if (!regex_search(stringData, eit, cbTail)) return packError + L"Invalid codeblock in: " + wstring(originalFilename.begin(), originalFilename.end());
 
 				size_t cs = sit.position() + sit.length(), ce = eit.position();
 				string curCode = stringData.substr(cs, ce - cs);
@@ -692,17 +689,17 @@ string packMod(string& myPath) {
 			}
 			string scriptName = "";
 			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks, scriptName);
-			if (luaDecodeResult) return packError + "Invalid lua chunk in:" + originalFilename;
-			if (duplicatedCheck.count(scriptName) || duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
+			if (luaDecodeResult) return packError + L"Invalid lua chunk in:" + wstring(originalFilename.begin(), originalFilename.end());
+			if (duplicatedCheck.count(scriptName) || duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + L"There are duplicated entries with: " + wstring(originalFilename.begin(), originalFilename.end());
 			duplicatedCheck.insert(scriptName);
 			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}	
 		else {
-			if (extension != ".json") return packError + "There is a non-codeblock entry with invalid extension: " + originalFilename;
+			if (extension != ".json") return packError + L"There is a non-codeblock entry with invalid extension: " + wstring(originalFilename.begin(), originalFilename.end());
 			const char* fullJson = stringData.c_str();
 			Document jsonObj;
 			jsonObj.Parse(fullJson);
-			if (jsonObj.HasParseError()) return packError + "Invalid json inside: " + originalFilename;
+			if (jsonObj.HasParseError()) return packError + L"Invalid json inside: " + wstring(originalFilename.begin(), originalFilename.end());
 
 			fullId = string(jsonObj["category"].GetString()) + "://" + string(jsonObj["entryId"].GetString());
 			fullCategory = "x-mod/" + string(jsonObj["category"].GetString());
@@ -751,7 +748,7 @@ string packMod(string& myPath) {
 				v.push_back(convertedString);
 			}
 
-			if (duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
+			if (duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + L"There are duplicated entries with: " + wstring(originalFilename.begin(), originalFilename.end());
 			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}
 
@@ -764,41 +761,51 @@ string packMod(string& myPath) {
 	}
 
 	for (auto entry : missingCheck) {
-		if (!duplicatedCheck.count(entry.substr(entry.find("://") + 3))) return packError + "There is no entry with Id or Name: " + entry.substr(entry.find("://") + 3);
+		if (!duplicatedCheck.count(entry.substr(entry.find("://") + 3))) {
+			string cur = entry.substr(entry.find("://") + 3);
+			return packError + L"There is no entry with Id or Name: " + wstring(cur.begin(), cur.end());
+		}
 	}
 	
-	string outPath = ".mod";
-	outPath.reserve(outPath.size() + myPath.size());
-	outPath.insert(0, myPath);
-	ofstream fout(outPath, ios::binary);
+	wstring outPath = myPath;
+	while (filesystem::exists(outPath + L".mod")) outPath += L"_new";
+	filesystem::path myoutPath(outPath + L".mod");
+	ofstream fout(myoutPath, ios::binary);
 	fout << '\n' << '\0';
 	std::sort(sorted.begin(), sorted.end());
 	for (auto& block : sorted) fout << block.second;
 	fout.close();
 
-	return "Succefully packed your files into..." + myPath;
+	return L"Succefully packed your files into... " + outPath + L".mod";
 }
 
 int main(int argc, char** argv) {
-	string myPath, outPath;
+	#ifdef _WIN32
+		SetConsoleOutputCP(CP_UTF8);
+		_setmode(_fileno(stdin), _O_U16TEXT);
+	#else
+		setlocale(LC_ALL, "");
+	#endif
 
+	wstring myPath; 
+	wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
 	int cnt = 0;
 	while (++cnt) {
 		
-		if (cnt == 1 && argc >= 2) myPath = argv[1];
+		if (cnt == 1 && argc >= 2) myPath = converter.from_bytes(argv[1]);
 		else {
-			cout << "Input path to .mod or directory... X or Q to exit...\n";
-			getline(cin, myPath);
+			wcout << L"Input path to .mod or directory... X or Q to exit..." << L"\n";
+			getline(wcin, myPath);
 		}
-		if (myPath == "X" || myPath == "x" || myPath == "Q" || myPath == "q") return 0 ;
+		if (myPath == L"X" || myPath == L"x" || myPath == L"Q" || myPath == L"q") return 0 ;
 
 		int ext = extensioncheck(myPath);
 		if (!ext) {
-			cout << initError + "Not a valid .mod file or path.\n";
+			wcerr << initError + L"Not a valid .mod file or path." << L"\n";
 			continue;
 		}
 
-		if (ext == 1) cout << unpackMod(myPath) << "\n";
-		else cout << packMod(myPath) << "\n";
+		if (ext == 1) wcout << unpackMod(myPath) << L"\n";
+		else wcout << packMod(myPath) << L"\n";
 	}
 }
