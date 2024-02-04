@@ -788,24 +788,29 @@ int main(int argc, char** argv) {
 	#endif
 
 	wstring myPath; 
-	wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+	
+	
 	int cnt = 0;
 	while (++cnt) {
 		
-		if (cnt == 1 && argc >= 2) myPath = converter.from_bytes(argv[1]);
+		if (cnt == 1 && argc >= 2) {
+			wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+			myPath = converter.from_bytes(argv[1]);
+		}
 		else {
-			wcout << L"Input path to .mod or directory... X or Q to exit..." << L"\n";
+			wcout << L"Input path to .mod or directory... X or Q to exit..." << "\n";
 			getline(wcin, myPath);
+			std::wcin.ignore(std::numeric_limits<std::streamsize>::max(), L'\n');
 		}
 		if (myPath == L"X" || myPath == L"x" || myPath == L"Q" || myPath == L"q") return 0 ;
 
 		int ext = extensioncheck(myPath);
 		if (!ext) {
-			wcerr << initError + L"Not a valid .mod file or path." << L"\n";
+			wcerr << initError + L"Not a valid .mod file or path." << "\n";
 			continue;
 		}
 
-		if (ext == 1) wcout << unpackMod(myPath) << L"\n";
-		else wcout << packMod(myPath) << L"\n";
+		if (ext == 1) wcout << unpackMod(myPath) << "\n";
+		else wcout << packMod(myPath) << "\n";
 	}
 }
