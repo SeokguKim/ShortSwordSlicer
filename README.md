@@ -13,8 +13,8 @@ MapleStory Wolrds .mod file packing/unpacking tools with visiblity.
 - Repack unfolded .lua and .json files to .mod file.  
 - 언패킹된 .lua 파일들과 .json 파일들로부터 .mod 파일을 패킹합니다.
 
-- Valid packing with scripts written in different worlds.  
-- 각기 다른 월드에서 작성된 스크립트들을 합쳤을 때 유효하게 패킹됩니다.
+- Valid packing with files written in different worlds.. as long as they are sliced with ShortSwordSlicer.
+- 각기 다른 월드에서 작성된 파일들을 ShortSwordSlicer로 분해하고 합쳤을 때 유효하게 패킹됩니다.
 
 ## Quick Guide
 1. Clone the repository and build your own with CMake or download released version of `ShortSwordSlicer.exe`.
