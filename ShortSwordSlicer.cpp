@@ -536,7 +536,7 @@ void eventIterate(lua_State *L, Value& dest, rapidjson::MemoryPoolAllocator<>& a
 	}
 }
 
-int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<string>& codeblocks, string& scriptName) {
+int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<string>& codeblocks, string& scriptName, string& category) {
 	lua_State *L = luaL_newstate();
 	int err = luaL_dostring(L, stringData.c_str());
 	if (err) return 1;
@@ -546,7 +546,7 @@ int luaTableDecode(string& stringData, vector<string>& v, string& destId, queue<
 
 	string uniqueIdentifier = get<string>(luaGetfromKey(L, "uniqueIdentifier"));
 	string bundleIdentifier = get<string>(luaGetfromKey(L, "bundleIdentifier"));
-	string category = get<string>(luaGetfromKey(L, "category"));
+	category = get<string>(luaGetfromKey(L, "category"));
 	string entryId = get<string>(luaGetfromKey(L, "entryId"));
 
 	string fullId = category + "://" + entryId;
@@ -671,8 +671,7 @@ string packMod(wstring& myPath) {
 
 		string fullId = "";
 		string fullCategory = "";
-		if (category == "codeblock") {
-			if (extension != ".lua") return packError + "There is a codeblock entry with invalid extension: " + originalFilename;
+		if (extension == ".lua") {
 			queue<string> codeblocks;
 			smatch sit;
 			while (regex_search(stringData, sit, cbHead)) {
@@ -690,20 +689,22 @@ string packMod(wstring& myPath) {
 				stringData = regex_replace(stringData, cbTail, ",$1", regex_constants::format_first_only);
 			}
 			string scriptName = "";
-			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks, scriptName);
+			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks, scriptName, category);
+			if (category != "codeblock") return packError + "There is a codeblock entry with invalid extension: " + originalFilename;
 			if (luaDecodeResult) return packError + "Invalid lua chunk in:" + originalFilename;
 			if (duplicatedCheck.count(scriptName) || duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
 			duplicatedCheck.insert(scriptName);
 			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}	
-		else {
-			if (extension != ".json") return packError + "There is a non-codeblock entry with invalid extension: " + originalFilename;
+		else if (extension == ".json") {
 			const char* fullJson = stringData.c_str();
 			Document jsonObj;
 			jsonObj.Parse(fullJson);
 			if (jsonObj.HasParseError()) return packError + "Invalid json inside: " + originalFilename;
 
-			fullId = string(jsonObj["category"].GetString()) + "://" + string(jsonObj["entryId"].GetString());
+			category = jsonObj["category"].GetString();
+			if (category == "codeblock") return packError + "There is a non-codeblock entry with invalid extension: " + originalFilename;
+			fullId = category + "://" + string(jsonObj["entryId"].GetString());
 			fullCategory = "x-mod/" + string(jsonObj["category"].GetString());
 
 			v.push_back(string(jsonObj["uniqueIdentifier"].GetString()));
@@ -753,6 +754,7 @@ string packMod(wstring& myPath) {
 			if (duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
 			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}
+		else return packError + "There is a not expected file: " + originalFilename;
 
 		if (category == "gamelogic" || category == "map" || category == "ui") {
 			sorted.push_back({fullId, hierarchyConcat(v)});
@@ -794,7 +796,6 @@ int main(int argc, char** argv) {
 	
 	int cnt = 0;
 	while (++cnt) {
-		
 		if (cnt == 1 && argc >= 2) {
 			wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
 			myPath = converter.from_bytes(argv[1]);
