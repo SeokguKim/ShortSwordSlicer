@@ -647,7 +647,7 @@ string packMod(wstring& myPath) {
 	wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
 	vector<pair<string, string>> sorted;
 
-	set<string> missingCheck, duplicatedCheck;
+	set<string> missingCheck, missingCheckCounter, duplicatedCheck;
 	regex cbHead("Code\\s*=\\s*function\\s*\\(\\s*(\\w+\\,\\s*)*\\w*\\s*\\)");
 	regex cbTail("end\\,(\\s*Scope\\s*=\\s*\\d+\\s*\\,[\\s\n]*ExecSpace\\s*=\\s*\\d+)");
 	regex cbTabs("(^|\n)\t{4,5}");
@@ -692,9 +692,10 @@ string packMod(wstring& myPath) {
 			int luaDecodeResult = luaTableDecode(stringData, v, fullId, codeblocks, scriptName, category);
 			if (category != "codeblock") return packError + "There is a codeblock entry with invalid extension: " + originalFilename;
 			if (luaDecodeResult) return packError + "Invalid lua chunk in:" + originalFilename;
-			if (duplicatedCheck.count(scriptName) || duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
-			duplicatedCheck.insert(scriptName);
+
+			if (duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
 			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
+			missingCheckCounter.insert(scriptName);
 		}	
 		else if (extension == ".json") {
 			const char* fullJson = stringData.c_str();
@@ -765,7 +766,7 @@ string packMod(wstring& myPath) {
 	}
 
 	for (auto entry : missingCheck) {
-		if (!duplicatedCheck.count(entry.substr(entry.find("://") + 3))) {
+		if (!duplicatedCheck.count(entry.substr(entry.find("://") + 3)) && !missingCheckCounter.count(entry.substr(entry.find("://") + 3))) {
 			string cur = entry.substr(entry.find("://") + 3);
 			return packError + "There is no entry with Id or Name: " + cur;
 		}
