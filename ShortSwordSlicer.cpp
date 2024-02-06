@@ -360,7 +360,7 @@ string getByte(size_t partLen) {
 }
 
 string blockConcat(vector<string>& v) {
-	if (v.size() < 5) return "Invalid sequence while concatenating normal block";
+	if (v.size() < 5) return "WTF";
 
 	string res = "\n" + getByte(v[0].length()) + v[0];
 	res += "\x12" + getByte(v[1].length()) + v[1];
@@ -380,7 +380,7 @@ string blockConcat(vector<string>& v) {
 }
 
 string hierarchyConcat(vector<string>& v) {
-	if (v.size() < 5) return "Invalid sequence while concatenating hierarchy block";
+	if (v.size() < 5) return "WTF";
 
 	string res = "\n" + getByte(v[0].length()) + v[0];
 	res += "\x12" + getByte(v[1].length()) + v[1];
@@ -753,16 +753,24 @@ string packMod(wstring& myPath) {
 				v.push_back(convertedString);
 			}
 
+			if (category == "blueprintatlas") {
+				string packedEntryId = jsonObj["contents"][0]["packedentryid"].GetString();
+				missingCheckCounter.insert(packedEntryId.substr(packedEntryId.find("://") + 3));
+			}
 			if (duplicatedCheck.count(fullId.substr(fullId.find("://") + 3))) return packError + "There are duplicated entries with: " + originalFilename;
 			duplicatedCheck.insert(fullId.substr(fullId.find("://") + 3));
 		}
 		else return packError + "There is a not expected file: " + originalFilename;
 
 		if (category == "gamelogic" || category == "map" || category == "ui") {
-			sorted.push_back({fullId, hierarchyConcat(v)});
+			string concatenated = hierarchyConcat(v);
+			if (concatenated == "WTF") return packError + "Invalid sequence while concatenating hierarchy block";
+			sorted.push_back({fullId, concatenated});
 		}
 		else {
-			sorted.push_back({fullId, blockConcat(v)});
+			string concatenated = blockConcat(v);
+			if (concatenated == "WTF") return packError + "Invalid sequence while concatenating normal block";
+			sorted.push_back({fullId, concatenated});
 		}
 	}
 
