@@ -336,8 +336,9 @@ string unpackMod(wstring& myPath) {
 			resString += tabLine(1) + "]\n}";
 		}
 
-		auto newfile = newpath + L"\\" + wstring(category.begin(), category.end()) + L"-" + wstring(scriptName.begin(), scriptName.end()) + (category == "codeblock" ? L".lua" : L".json");
-		filesystem::path mynewFile(newfile);
+		auto newfile = newpath + L"\\" + wstring(category.begin(), category.end()) + L"-" + wstring(scriptName.begin(), scriptName.end());
+		while (filesystem::exists(newfile + (category == "codeblock" ? L".lua" : L".json"))) newfile +=  L"_1";
+		filesystem::path mynewFile(newfile + (category == "codeblock" ? L".lua" : L".json"));
 		ofstream fout(mynewFile, ios::binary | std::ios::trunc);
 		fout << resString;
 		fout.close();
